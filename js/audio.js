@@ -67,16 +67,21 @@ export class SoundReel {
 export class AudioOut {
   constructor() {
     this.ctx = null;
-    this.src = null;
     this.gain = null;
+    this.sources = new Set();
     this.volume = 0.8;
   }
   ensure() {
     if (!this.ctx) {
       const C = window.AudioContext || window.webkitAudioContext;
       try { this.ctx = new C({ sampleRate: 48000 }); } catch (e) { this.ctx = new C(); }
+      // limitador suave para que la mezcla a estéreo no sature
+      this.limiter = this.ctx.createDynamicsCompressor();
+      this.limiter.threshold.value = -3; this.limiter.knee.value = 0; this.limiter.ratio.value = 20;
+      this.limiter.attack.value = 0.003; this.limiter.release.value = 0.1;
       this.gain = this.ctx.createGain();
       this.gain.gain.value = this.volume;
+      this.limiter.connect(this.gain);
       this.gain.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
@@ -84,12 +89,8 @@ export class AudioOut {
   }
   setVolume(v) { this.volume = v; if (this.gain) this.gain.gain.value = v; }
 
-  /**
-   * Reproduce los canales. mode: 'stereo' (mezcla) o el número de un canal (se oye por los dos lados).
-   * Devuelve { startTime, duration } en tiempo del AudioContext.
-   */
-  play(chans, labels, rate, mode, onEnded) {
-    this.stop();
+  /** Mezcla los canales a un AudioBuffer estéreo. mode: 'stereo' o el número de un canal. */
+  mix(chans, labels, rate, mode) {
     const ctx = this.ensure();
     const len = chans.length ? chans[0].length : 0;
     if (!len) return null;
@@ -101,28 +102,34 @@ export class AudioOut {
         if (!k) return;
         for (let i = 0; i < len; i++) { L[i] += d[i] * k[0]; R[i] += d[i] * k[1]; }
       });
-      // si la mezcla satura, bajamos el conjunto (no hay limitador)
-      let peak = 0;
-      for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
-      if (peak > 1) { const g = 1 / peak; for (let i = 0; i < len; i++) { L[i] *= g; R[i] *= g; } }
     } else {
       const d = chans[mode];
       if (d) { L.set(d); R.set(d); }
     }
+    return buf;
+  }
+
+  /** Programa un trozo para que suene en el instante `when` del AudioContext. */
+  schedule(chans, labels, rate, mode, when) {
+    const buf = this.mix(chans, labels, rate, mode);
+    if (!buf) return;
+    const ctx = this.ctx;
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(this.gain);
-    src.onended = () => { if (this.src === src) { this.src = null; onEnded && onEnded(); } };
-    const startTime = ctx.currentTime + 0.05;
-    src.start(startTime);
-    this.src = src;
-    return { startTime, duration: len / rate };
+    src.connect(this.limiter);
+    src.onended = () => this.sources.delete(src);
+    const now = ctx.currentTime;
+    if (when >= now) src.start(when);
+    else if (now - when < buf.duration) src.start(now, now - when);   // llega tarde: empezamos por donde toca
+    else return;
+    this.sources.add(src);
   }
 
   stop() {
-    if (this.src) { const s = this.src; this.src = null; try { s.stop(); } catch (e) { /* ya parado */ } }
+    for (const s of this.sources) { try { s.stop(); } catch (e) { /* ya parado */ } }
+    this.sources.clear();
   }
-  get playing() { return !!this.src; }
+  get playing() { return this.sources.size > 0; }
 }
 
 /** Nivel RMS y pico de cada canal en dBFS (para ver qué canales tienen señal). */

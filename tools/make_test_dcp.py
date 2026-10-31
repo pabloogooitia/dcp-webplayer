@@ -326,7 +326,7 @@ def subs_lines(reel):
     ]
 
 
-def smpte_subtitle_xml(sid, reel, fps, title, font_id_urn):
+def smpte_subtitle_xml(sid, reel, fps, title, font_id_urn, png_id=None):
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<SubtitleReel xmlns="http://www.smpte-ra.org/schemas/428-7/2010/DCST" xmlns:xs="http://www.w3.org/2001/XMLSchema">',
            '  <Id>urn:uuid:%s</Id>' % sid,
@@ -354,6 +354,12 @@ def smpte_subtitle_xml(sid, reel, fps, title, font_id_urn):
                % (n, tc_smpte(int(0.5 * fps), fps), tc_smpte(int(2.9 * fps), fps)))
     out.append('        <Text Valign="top" Vposition="10" Halign="left" Hposition="5" Direction="ltr"><Font Color="FFFFFF00">Rótulo arriba a la izquierda (amarillo)</Font></Text>')
     out.append('      </Subtitle>')
+    if png_id:
+        n += 1
+        out.append('      <Subtitle SpotNumber="%d" TimeIn="%s" TimeOut="%s" FadeUpTime="00:00:00:00" FadeDownTime="00:00:00:00">'
+                   % (n, tc_smpte(int(3.2 * fps), fps), tc_smpte(int(6.5 * fps), fps)))
+        out.append('        <Image Valign="bottom" Vposition="10" Halign="center">urn:uuid:%s</Image>' % png_id)
+        out.append('      </Subtitle>')
     out += ['    </Font>', '  </SubtitleList>', '</SubtitleReel>']
     return '\n'.join(out).encode('utf-8')
 
@@ -385,11 +391,11 @@ def interop_subtitle_xml(sid, reel, title, png_name):
     return '\n'.join(out).encode('utf-8')
 
 
-def make_png_sub(path):
+def make_png_sub(path, text='Subtítulo PNG (Interop)'):
     im = Image.new('RGBA', (900, 110), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     d.rounded_rectangle([0, 0, 899, 109], 18, fill=(0, 0, 0, 170))
-    d.text((30, 22), 'Subtítulo PNG (Interop)', font=ImageFont.truetype(FONT, 54), fill=(120, 220, 255, 255))
+    d.text((30, 22), text, font=ImageFont.truetype(FONT, 54), fill=(120, 220, 255, 255))
     im.save(path)
 
 
@@ -534,12 +540,15 @@ def build(out, cfg, pool, tmp):
         if cfg.get('subs') == 'smpte':
             tid = str(uuid.uuid4())
             font_id = str(uuid.uuid4())
-            xml = smpte_subtitle_xml(tid, r, fps, title, font_id)
+            png_id = str(uuid.uuid4())
+            png_path = os.path.join(tmp, 'sub_%s.png' % png_id)
+            make_png_sub(png_path, 'Subtítulo PNG (SMPTE)')
+            xml = smpte_subtitle_xml(tid, r, fps, title, font_id, png_id)
             tfn = 'sub_%s.mxf' % tid
             write_mxf(os.path.join(dcp.root, tfn), EC_TT,
                       [(K_TTDESC, [(0x3c0a, uuid.uuid4().bytes), (0x3001, rational(fps, 1)),
                                    (0x3002, struct.pack('>q', nfr))])],
-                      [xml], K_TT, (fps, 1), cbr=False, generic=[open(FONT_REG, 'rb').read()])
+                      [xml], K_TT, (fps, 1), cbr=False, generic=[open(FONT_REG, 'rb').read(), open(png_path, 'rb').read()])
             dcp.add(tid, tfn, 'MXF')
             reel['sub'] = tid
         elif cfg.get('subs') == 'interop':
@@ -650,7 +659,7 @@ def interop_cpl(cid, cfg, reels, fps):
 CONFIGS = [
     dict(name='PRUEBA-SMPTE-FLAT', title='PruebaBabel_TST_F_ES-XX_51_2K_BABEL_20261031_SMPTE_OV',
          label='SMPTE · 2K FLAT', smpte=True, w=1998, h=1080, ratio=(1998, 1080), cinema='2K',
-         reels=[48, 48], channels=16, subs='smpte', kind='test'),
+         reels=[168, 96], channels=16, subs='smpte', kind='test'),
     dict(name='PRUEBA-INTEROP-SCOPE', title='PruebaBabel_TST_S_ES-XX_51_2K_BABEL_20261031_IOP_OV',
          label='INTEROP · 2K SCOPE', smpte=False, w=2048, h=858, ratio=(2048, 858), sar='2.39', cinema='2K',
          reels=[72], channels=6, subs='interop', kind='trailer'),

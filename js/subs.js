@@ -182,10 +182,26 @@ export async function loadSubtitleAsset(asset, allFiles) {
   return finish(parsed, standard, fontMap, imageMap, rootName === 'DCSubtitle' ? 'Interop (XML)' : 'SMPTE (XML suelto)');
 }
 
-function finish(parsed, standard, fontMap, imageMap, kindName) {
+/** Tamaño real de cada PNG (para pintarlo ya escalado, sin esperar al onload). */
+async function imageSizes(imageMap) {
+  const sizes = {};
+  await Promise.all(Object.entries(imageMap).map(async ([ref, url]) => {
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      sizes[ref] = [img.naturalWidth, img.naturalHeight];
+    } catch (e) { /* PNG dañado: se quedará sin tamaño */ }
+  }));
+  return sizes;
+}
+
+async function finish(parsed, standard, fontMap, imageMap, kindName) {
+  const sizes = await imageSizes(imageMap);
+  parsed.events.forEach((ev, n) => { ev.n = n; });
   for (const ev of parsed.events) {
     for (const it of ev.items) {
-      if (it.type === 'image') it.url = imageMap[it.ref] || null;
+      if (it.type === 'image') { it.url = imageMap[it.ref] || null; it.size = sizes[it.ref] || null; }
       else for (const r of it.runs) r.family = fontMap[r.fontId] || fontMap['*'] || null;
     }
   }
@@ -198,17 +214,35 @@ export function activeAt(subs, t) {
   return subs.events.filter(e => t >= e.tin && t < e.tout);
 }
 
-/** Pinta los eventos en la capa de subtítulos. stageH = alto en píxeles de la imagen en pantalla. */
-export function renderSubs(layer, events, stageH, t) {
+function opacityAt(ev, t) {
+  let op = 1;
+  if (ev.fadeUp > 0 && t - ev.tin < ev.fadeUp) op = (t - ev.tin) / ev.fadeUp;
+  if (ev.fadeDown > 0 && ev.tout - t < ev.fadeDown) op = Math.min(op, (ev.tout - t) / ev.fadeDown);
+  return Math.max(0, Math.min(1, op));
+}
+
+/**
+ * Pinta los eventos en la capa de subtítulos.
+ * stageH: alto en píxeles de la imagen en pantalla (para el tamaño del texto).
+ * pxScale: píxeles de pantalla por píxel del DCP (para los PNG, que van a la resolución del DCP).
+ * Solo rehace el DOM cuando cambia lo que hay que mostrar; si no, solo actualiza los fundidos
+ * (rehacerlo en cada fotograma hacía parpadear los PNG mientras cargaban).
+ */
+export function renderSubs(layer, events, stageH, t, pxScale) {
+  const key = events.map(e => e.n).join(',') + '|' + Math.round(stageH) + '|' + (pxScale || 0).toFixed(4);
+  if (layer._key === key) {
+    for (const d of layer.children) d.style.opacity = opacityAt(d._ev, t);
+    return;
+  }
+  layer._key = key;
   layer.textContent = '';
   for (const ev of events) {
-    let op = 1;
-    if (ev.fadeUp > 0 && t - ev.tin < ev.fadeUp) op = (t - ev.tin) / ev.fadeUp;
-    if (ev.fadeDown > 0 && ev.tout - t < ev.fadeDown) op = Math.min(op, (ev.tout - t) / ev.fadeDown);
+    const op = opacityAt(ev, t);
     for (const it of ev.items) {
       const d = document.createElement('div');
       d.className = 'sub-item';
-      d.style.opacity = Math.max(0, Math.min(1, op));
+      d._ev = ev;
+      d.style.opacity = op;
       let tx = '0', ty = '0';
       if (it.valign === 'top') d.style.top = it.vpos + '%';
       else if (it.valign === 'bottom') d.style.bottom = it.vpos + '%';
@@ -218,32 +252,34 @@ export function renderSubs(layer, events, stageH, t) {
       else { d.style.left = (50 + it.hpos) + '%'; tx = '-50%'; }
       d.style.transform = `translate(${tx},${ty})`;
       if (it.type === 'image') {
-        if (it.url) {
+        if (it.url && it.size) {
           const img = document.createElement('img');
+          // tamaño fijado antes de añadirla: los PNG están hechos a la resolución del DCP
+          const sc = pxScale || stageH / 1080;
+          img.width = Math.round(it.size[0] * sc);
+          img.height = Math.round(it.size[1] * sc);
+          img.style.display = 'block';
           img.src = it.url;
-          // los PNG se hacen para una pantalla de 1080 de alto
-          img.style.height = 'auto';
-          img.onload = () => { img.style.width = (img.naturalWidth * stageH / 1080) + 'px'; };
           d.appendChild(img);
-        } else d.textContent = '[imagen ' + it.ref + ']';
+        } else if (!it.url) d.textContent = '[imagen ' + it.ref + ']';
       } else {
         d.dir = it.direction === 'rtl' ? 'rtl' : 'ltr';
         for (const r of it.runs) {
-          const s = document.createElement('span');
-          s.textContent = r.text;
+          const sp = document.createElement('span');
+          sp.textContent = r.text;
           // tamaño: puntos sobre una pantalla de 11 × 72 puntos de alto (criterio de DCP-o-matic)
-          s.style.fontSize = (r.size * stageH / (11 * 72)).toFixed(1) + 'px';
-          s.style.color = r.color;
-          if (r.italic) s.style.fontStyle = 'italic';
-          if (r.bold) s.style.fontWeight = '700';
-          if (r.underline) s.style.textDecoration = 'underline';
-          if (r.family) s.style.fontFamily = `"${r.family}", Arial, sans-serif`;
+          sp.style.fontSize = (r.size * stageH / (11 * 72)).toFixed(1) + 'px';
+          sp.style.color = r.color;
+          if (r.italic) sp.style.fontStyle = 'italic';
+          if (r.bold) sp.style.fontWeight = '700';
+          if (r.underline) sp.style.textDecoration = 'underline';
+          if (r.family) sp.style.fontFamily = `"${r.family}", Arial, sans-serif`;
           const px = Math.max(1, stageH / 540);
-          if (r.effect === 'border') s.style.textShadow = [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 1], [0, -1], [1, 0], [-1, 0]].map(([x, y]) => `${x * px}px ${y * px}px 0 ${r.effectColor}`).join(',');
-          else if (r.effect === 'shadow') s.style.textShadow = `${2 * px}px ${2 * px}px ${px}px ${r.effectColor}`;
-          if (r.script === 'super') s.style.verticalAlign = 'super';
-          if (r.script === 'sub') s.style.verticalAlign = 'sub';
-          d.appendChild(s);
+          if (r.effect === 'border') sp.style.textShadow = [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 1], [0, -1], [1, 0], [-1, 0]].map(([x, y]) => `${x * px}px ${y * px}px 0 ${r.effectColor}`).join(',');
+          else if (r.effect === 'shadow') sp.style.textShadow = `${2 * px}px ${2 * px}px ${px}px ${r.effectColor}`;
+          if (r.script === 'super') sp.style.verticalAlign = 'super';
+          if (r.script === 'sub') sp.style.verticalAlign = 'sub';
+          d.appendChild(sp);
         }
       }
       layer.appendChild(d);
