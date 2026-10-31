@@ -487,7 +487,10 @@ async function play() {
       if (g !== S.frame) { S.frame = g; updatePosition(g); }
       renderSubtitlesNow();
       const pct = st.total ? Math.round(st.lost / st.total * 100) : 0;
-      $('hud').textContent = `${st.state === 'Precargando' ? 'Precargando… ' : '▶ '}resolución 1/${1 << st.level} · búfer ${st.buffered}/${st.ahead} · perdidos ${st.lost} (${pct} %)`;
+      const sec = n => (n / st.fps).toFixed(1).replace('.', ',');
+      $('hud').textContent = st.state === 'Precargando'
+        ? `Precargando… ${sec(st.buffered)} / ${sec(st.need)} s · resolución 1/${1 << st.level}`
+        : `▶ resolución 1/${1 << st.level} · búfer ${sec(st.buffered)} s · perdidos ${st.lost} (${pct} %)`;
     },
     onLevels: (chans, labels) => {
       const now = performance.now();

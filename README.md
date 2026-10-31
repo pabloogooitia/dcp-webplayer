@@ -32,8 +32,8 @@ Los archivos se procesan en el navegador y no se suben a ningún sitio.
 
 ### Reproducción continua
 - **Reproducir** sigue hasta el final o hasta pulsar Parar (antes solo eran unos segundos).
-- Precarga lo que viene: lee del disco 8 fotogramas de una vez y los decodifica en varios workers a la vez (hasta 6, según los núcleos del ordenador), con hasta 4 s por delante. Arranca cuando tiene ~1 s listo.
-- Resolución al reproducir: **Automática** (empieza en 1/4, o 1/8 en 4K, baja si se pierden fotogramas y sube si va sobrado) o fija en 1/2, 1/4 o 1/8. En pausa, el fotograma se ve a resolución completa.
+- Precarga lo que viene: lee del disco 8 fotogramas de una vez y los decodifica en varios workers a la vez (hasta 6, según los núcleos del ordenador), con hasta 12 s por delante. Antes de arrancar precarga 10 s (o lo que quepa en memoria a esa resolución): tarda más en empezar, pero luego aguanta mejor los tirones. El indicador muestra cuántos segundos lleva precargados.
+- Resolución al reproducir: **Automática** (empieza en 1/4, o 1/8 en 4K, baja si se pierden fotogramas o si el búfer se va vaciando, y sube si va sobrado; si un nivel no ha aguantado, ya no vuelve a él en esa reproducción) o fija en 1/2, 1/4 o 1/8. En pausa, el fotograma se ve a resolución completa.
 - La imagen va sincronizada con el reloj del sonido. Si un fotograma no llega a tiempo, se salta (el indicador de arriba a la derecha dice cuántos se pierden y cuánto búfer hay).
 
 ### Sonido
@@ -96,5 +96,6 @@ Para probarlo en local hace falta servirlo por HTTP (los workers y el WASM no ca
 Desarrollado por **Pablo Goitia Martinez** — [pgoitiamartinez@gmail.com](mailto:pgoitiamartinez@gmail.com)
 
 ## Changelog
+- **v0.3** (01/11/2026): antes de reproducir se precargan 10 s (antes ~1 s) y el búfer llega hasta 12 s por delante (antes 4 s, tope de memoria de 512 MB). La resolución automática baja también cuando ve que el búfer se va vaciando, sin esperar a perder fotogramas, y no vuelve a subir a un nivel que no ha aguantado (así no cambia de resolución cada pocos segundos). El indicador muestra el búfer en segundos.
 - **v0.2** (01/11/2026): reproducción continua (ya no se para a los pocos segundos) con precarga de fotogramas por delante, lectura del disco por bloques, hasta 6 workers y sonido sincronizado por trozos; resolución al reproducir automática o fija en 1/2, 1/4 y 1/8. Arreglado el parpadeo de los subtítulos PNG (se veían alternando gigantes y descentrados con los buenos): ahora se pintan ya escalados a la resolución del DCP y no se rehacen en cada fotograma. Los recursos de los subtítulos SMPTE se leen aunque vayan varios en la misma partición.
 - **v0.1** (31/10/2026): primera versión (fase 1). Carga de DCP SMPTE e Interop, ficha de la CPL con detección de encriptado, lector MXF con índice, decodificación JPEG 2000 en WebAssembly con conversión XYZ → sRGB, línea de tiempo por toda la CPL con atajos, subtítulos SMPTE e Interop, y escucha del sonido con mezcla estéreo o por canales.
