@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DCP Web Player</title>
+<!--
+  Babel · DCP Web Player — v0.1
+  Visor de comprobación de DCPs en el navegador: lee ASSETMAP, PKL y CPL (SMPTE e Interop),
+  localiza los fotogramas JPEG 2000 dentro de los MXF sin cargarlos enteros, los decodifica
+  con OpenJPEG (WebAssembly) en varios workers y convierte el color X'Y'Z' a sRGB.
+  Todo se procesa en el navegador: los archivos no se suben a ningún sitio.
+-->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231b1b1b'/%3E%3Cpath d='M24 18v28l22-14z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f4f2ee; --panel:#ffffff; --panel-2:#f8f7f4; --ink:#1b1b1b; --muted:#6b6862;
+  --line:#dedad3; --accent:#1b1b1b; --accent-ink:#ffffff;
+  --ok:#1f7a3f; --ok-bg:#e3f2e8; --warn:#8a5a00; --warn-bg:#fbf0d6;
+  --bad:#a52a1e; --bad-bg:#f8e1dd; --wait:#2d55a3; --wait-bg:#e2e9f7;
+  --chip:#ece9e3; --drop:#faf9f6; --stage:#000; --meter:#1f7a3f;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141414; --panel:#1d1d1d; --panel-2:#232323; --ink:#ecebe8; --muted:#9a968f;
+    --line:#333131; --accent:#ecebe8; --accent-ink:#141414;
+    --ok:#6fd08f; --ok-bg:#1b3324; --warn:#f0c062; --warn-bg:#3a2f15;
+    --bad:#ff8a7a; --bad-bg:#3d1f1b; --wait:#8fb0f2; --wait-bg:#1d2a44;
+    --chip:#2b2a28; --drop:#1a1a1a; --meter:#6fd08f;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141414; --panel:#1d1d1d; --panel-2:#232323; --ink:#ecebe8; --muted:#9a968f;
+  --line:#333131; --accent:#ecebe8; --accent-ink:#141414;
+  --ok:#6fd08f; --ok-bg:#1b3324; --warn:#f0c062; --warn-bg:#3a2f15;
+  --bad:#ff8a7a; --bad-bg:#3d1f1b; --wait:#8fb0f2; --wait-bg:#1d2a44;
+  --chip:#2b2a28; --drop:#1a1a1a; --meter:#6fd08f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 40px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+h1{font-size:22px;margin:0;letter-spacing:-.01em}
+h1 small{font-size:12px;font-weight:500;color:var(--muted);margin-left:6px;letter-spacing:0}
+.sub{color:var(--muted);font-size:13px;margin-top:2px}
+button,.btn,select{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;border-radius:8px;cursor:pointer;white-space:nowrap}
+select{padding:6px 8px}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button.icon{min-width:40px;padding:7px 10px;font-variant-numeric:tabular-nums}
+#drop{border:2px dashed var(--line);border-radius:14px;background:var(--drop);padding:26px 16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+#drop.over{border-color:var(--ink);background:var(--panel-2)}
+#drop strong{display:block;font-size:16px;margin-bottom:4px}
+#drop span{color:var(--muted);font-size:13px}
+#drop.compact{padding:10px 16px}
+#drop.compact strong{display:inline;font-size:14px;margin:0 6px 0 0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:16px}
+.panel h2{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;margin:0 0 8px}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.b-ok{color:var(--ok);background:var(--ok-bg)}
+.b-warn{color:var(--warn);background:var(--warn-bg)}
+.b-bad{color:var(--bad);background:var(--bad-bg)}
+.b-wait{color:var(--wait);background:var(--wait-bg)}
+.b-none{color:var(--muted);background:var(--chip)}
+.chips{margin-top:8px;display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:12px;padding:2px 8px;border-radius:5px;background:var(--chip);color:var(--ink);white-space:nowrap}
+.title{font-size:18px;font-weight:700;word-break:break-word}
+.title-row{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.anno{font-size:12px;color:var(--muted);word-break:break-all;margin-top:2px}
+.verdict{font-size:14px;padding:6px 12px}
+.kv{display:table;width:100%;margin-top:10px}
+.kv div{display:table-row}
+.kv span{display:table-cell;padding:3px 12px 3px 0;vertical-align:top;font-size:13px}
+.kv span:first-child{white-space:nowrap;color:var(--muted);width:1%}
+.kv .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;word-break:break-all}
+details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:10px}
+.cpls{display:flex;flex-direction:column;gap:6px}
+.cpl-item{display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;cursor:pointer;flex-wrap:wrap;background:var(--panel)}
+.cpl-item:hover{background:var(--panel-2)}
+.cpl-item.on{border-color:var(--ink);box-shadow:inset 3px 0 0 var(--ink)}
+.cpl-item .t{flex:1 1 260px;font-weight:600;font-size:13px;word-break:break-all}
+.cpl-item .d{font-size:12px;color:var(--muted)}
+/* reproductor */
+.player{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.stage-wrap{background:var(--stage);display:flex;justify-content:center;align-items:center;position:relative}
+.stage{--ratio:1.85;position:relative;aspect-ratio:var(--ratio);width:min(100%, calc(72vh * var(--ratio)));background:#000}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;image-rendering:auto}
+.stage-wrap:fullscreen{height:100vh}
+.stage-wrap:fullscreen .stage{width:min(100vw, calc(100vh * var(--ratio)))}
+.stage-wrap:-webkit-full-screen{height:100vh;width:100vw}
+.stage-wrap:-webkit-full-screen .stage{width:min(100vw, calc(100vh * var(--ratio)))}
+#subs{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.sub-item{position:absolute;white-space:pre;line-height:1.15;font-family:Arial,"Helvetica Neue",sans-serif;text-align:center}
+#msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;text-align:center;padding:16px;color:#ecebe8;pointer-events:none}
+#msg .big{font-size:clamp(15px,2.6vw,24px);font-weight:700}
+#msg .big.bad{color:#ff8a7a}
+#msg .small{font-size:13px;color:#b9b6b0;max-width:640px}
+#hud{position:absolute;top:8px;right:10px;font:11px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#cfcac2;background:rgba(0,0,0,.55);padding:3px 7px;border-radius:5px;pointer-events:none}
+#hud:empty{display:none}
+.controls{padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
+.transport{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.transport .tc{font:600 18px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin-left:auto;font-variant-numeric:tabular-nums}
+.transport .pos{font-size:12px;color:var(--muted);text-align:right;width:100%;margin-top:-4px}
+.timeline{position:relative;padding-bottom:16px}
+.timeline input{width:100%;margin:0;accent-color:var(--ink)}
+.reelmarks{position:absolute;left:8px;right:8px;bottom:0;height:16px;pointer-events:none}
+.reelmarks span{position:absolute;top:0;font-size:10px;color:var(--muted);border-left:1px solid var(--muted);padding-left:3px;height:14px;line-height:14px;white-space:nowrap}
+.opts{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px}
+.opts label{display:flex;gap:6px;align-items:center;color:var(--muted);max-width:100%}
+.opts select{max-width:100%;min-width:0}
+.opts input[type=range]{width:90px;accent-color:var(--ink)}
+.meters{display:flex;gap:4px;flex-wrap:wrap}
+.meter{width:46px;cursor:pointer;border:1px solid var(--line);border-radius:6px;padding:3px 3px 2px;background:var(--panel-2);text-align:center}
+.meter.on{border-color:var(--ink)}
+.meter .bar{height:42px;background:var(--chip);border-radius:3px;position:relative;overflow:hidden}
+.meter .bar i{position:absolute;left:0;right:0;bottom:0;background:var(--meter)}
+.meter .l{font-size:11px;font-weight:600;margin-top:2px}
+.meter .db{font-size:9.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.meter.silent .l{color:var(--muted);font-weight:500}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:640px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;background:var(--panel-2);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+td .f{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--muted);word-break:break-all}
+tr.cur td{background:var(--panel-2)}
+.errors{margin-top:12px;font-size:12px;color:var(--bad)}
+.errors div{padding:2px 0}
+.keys{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px;font-size:12.5px}
+kbd{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel-2)}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+footer{margin-top:26px;font-size:11px;color:var(--muted);text-align:center}
+.hidden{display:none !important}
+@media (max-width:640px){
+  #hud{font-size:9px;top:4px;right:4px}
+  .transport .tc{font-size:15px;margin-left:0;width:100%}
+  button.icon{min-width:36px;padding:6px 8px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>DCP Web Player <small>v0.1</small></h1>
+      <div class="sub">Visor de comprobación de DCPs · Cines Babel</div>
+    </div>
+    <button id="themeBtn" title="Cambiar entre modo claro y oscuro">Tema</button>
+  </header>
+
+  <div id="drop" tabindex="0" role="button">
+    <strong>Arrastra aquí la carpeta del DCP</strong>
+    <span>o pulsa para elegirla. También vale un disco entero con varios DCP (o una VF junto a su OV). Nada se sube a ningún sitio: se lee en tu navegador.</span>
+  </div>
+  <input type="file" id="dirInput" webkitdirectory directory multiple class="hidden">
+  <div id="status" class="note"></div>
+  <div id="errors" class="errors"></div>
+
+  <section id="cplPanel" class="panel hidden">
+    <h2>Composiciones (CPL)</h2>
+    <div id="cplList" class="cpls"></div>
+  </section>
+
+  <section id="ficha" class="panel hidden"></section>
+
+  <section id="player" class="player hidden">
+    <div class="stage-wrap" id="stageWrap">
+      <div class="stage" id="stage">
+        <canvas id="view" width="1998" height="1080"></canvas>
+        <div id="subs"></div>
+        <div id="msg"></div>
+        <div id="hud"></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="transport">
+        <button class="icon" id="bStart" title="Inicio (Inicio)">⏮</button>
+        <button class="icon" id="bReelPrev" title="Bobina anterior (RePág)">⇤</button>
+        <button class="icon" id="bSecBack" title="−1 segundo (Mayús+←)">−1 s</button>
+        <button class="icon" id="bBack" title="−1 fotograma (←)">−1</button>
+        <button class="primary" id="bPlay" title="Escuchar unos segundos desde aquí (Espacio)">▶ Escuchar</button>
+        <button class="icon" id="bFwd" title="+1 fotograma (→)">+1</button>
+        <button class="icon" id="bSecFwd" title="+1 segundo (Mayús+→)">+1 s</button>
+        <button class="icon" id="bReelNext" title="Bobina siguiente (AvPág)">⇥</button>
+        <button class="icon" id="bEnd" title="Final (Fin)">⏭</button>
+        <div class="tc" id="tc">00:00:00:00</div>
+        <div class="pos" id="pos"></div>
+      </div>
+      <div class="timeline">
+        <input type="range" id="seek" min="0" max="0" value="0" step="1" aria-label="Posición">
+        <div class="reelmarks" id="reelmarks"></div>
+      </div>
+      <div class="opts">
+        <label><input type="checkbox" id="optSubs" checked> Subtítulos</label>
+        <label title="Automática: reducida mientras te mueves y completa al pararte">Calidad
+          <select id="optQuality">
+            <option value="auto">Automática</option>
+            <option value="full">Siempre completa</option>
+            <option value="reduced">Siempre reducida</option>
+          </select>
+        </label>
+        <label>Color
+          <select id="optColor">
+            <option value="srgb">XYZ → sRGB</option>
+            <option value="raw">Sin convertir (XYZ)</option>
+          </select>
+        </label>
+        <label>Sonido
+          <select id="optAudio"><option value="stereo">Mezcla estéreo</option></select>
+        </label>
+        <label>Escuchar
+          <select id="optSecs">
+            <option value="3">3 s</option><option value="5" selected>5 s</option><option value="10">10 s</option><option value="20">20 s</option>
+          </select>
+        </label>
+        <label>Volumen <input type="range" id="optVol" min="0" max="1" step="0.05" value="0.8"></label>
+        <button id="bSave" title="Guardar el fotograma como PNG">Guardar fotograma</button>
+        <button id="bFull" title="Pantalla completa (F)">Pantalla completa</button>
+      </div>
+      <div>
+        <div class="meters" id="meters"></div>
+        <div class="note" id="audioNote"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="reelsPanel" class="panel hidden">
+    <h2>Bobinas</h2>
+    <div class="tablewrap"><table id="reelsTable"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Atajos de teclado</h2>
+    <div class="keys">
+      <div><kbd>←</kbd> <kbd>→</kbd> fotograma anterior / siguiente</div>
+      <div><kbd>Mayús</kbd>+<kbd>←</kbd> <kbd>→</kbd> ±1 segundo</div>
+      <div><kbd>↑</kbd> <kbd>↓</kbd> ±10 segundos</div>
+      <div><kbd>Inicio</kbd> <kbd>Fin</kbd> principio / final</div>
+      <div><kbd>RePág</kbd> <kbd>AvPág</kbd> bobina anterior / siguiente</div>
+      <div><kbd>Espacio</kbd> escuchar / parar</div>
+      <div><kbd>S</kbd> subtítulos sí / no</div>
+      <div><kbd>F</kbd> pantalla completa</div>
+    </div>
+    <div class="note">Fase 1: es un visor de comprobación fotograma a fotograma. La imagen se decodifica con OpenJPEG (WebAssembly) dentro del navegador; mientras se escucha, la imagen sigue a la posición a resolución reducida y a los fotogramas por segundo que dé el ordenador. Los DCP encriptados no se pueden ver aquí: la KDM solo la puede abrir el servidor de la sala.</div>
+  </section>
+
+  <footer>DCP Web Player · Cines Babel · Pablo Goitia Martinez · Decodificador JPEG 2000: OpenJPEG (BSD) vía @cornerstonejs/codec-openjpeg (MIT)</footer>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
