@@ -3,7 +3,7 @@
 export class DecoderPool {
   constructor(size) {
     const hc = navigator.hardwareConcurrency || 4;
-    this.size = size || Math.max(1, Math.min(4, hc - 1));
+    this.size = size || Math.max(1, Math.min(6, hc - 1));   // cada worker ~50-100 MB
     this.workers = [];
     this.queue = [];
     this.pending = new Map();

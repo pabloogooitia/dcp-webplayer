@@ -5,6 +5,7 @@ import { MXFReader, parseJ2KHeader, j2kProfileName, cryptSourceKey } from './mxf
 import { DecoderPool } from './decoder-pool.js';
 import { loadSubtitleAsset, activeAt, renderSubs } from './subs.js';
 import { SoundReel, AudioOut, levels } from './audio.js';
+import { Playback } from './playback.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -15,7 +16,7 @@ const S = {
   files: [], byPath: new Map(), data: null, cpl: null,
   reels: [],            // por bobina: { reel, pic: Promise<MXFReader>, snd: SoundReel, subs: Promise }
   frame: 0, fps: 24, editRate: [24, 1],
-  quality: 'auto', color: 'srgb', showSubs: true, audioMode: 'stereo', listenSecs: 5,
+  quality: 'auto', color: 'srgb', showSubs: true, audioMode: 'stereo', playRes: 'auto',
   pictureInfo: null, channels: 0, labels: [],
   token: 0, fullTimer: null, cache: new Map(), cacheBytes: 0,
   play: null            // { startTime, g0, end, raf }
@@ -388,7 +389,7 @@ function putCache(key, res) {
   }
 }
 
-function draw(res, g) {
+function draw(res, g, playing) {
   const cv = $('view');
   if (cv.width !== res.width || cv.height !== res.height) { cv.width = res.width; cv.height = res.height; }
   const ctx = cv.getContext('2d');
@@ -396,6 +397,7 @@ function draw(res, g) {
   cv.dataset.frame = g; cv.dataset.level = res.level;      // (lo usan las pruebas automáticas)
   setRatio(res.fullWidth, res.fullHeight);
   setMsg('');
+  if (playing) return;           // durante la reproducción el HUD lo pone onTick
   const scale = res.level ? `1/${1 << res.level}` : 'completa';
   $('hud').textContent = `${res.width}×${res.height} · resolución ${scale} · ${Math.round(res.decodeMs + res.colorMs)} ms`;
 }
@@ -404,92 +406,111 @@ function draw(res, g) {
 
 function renderSubtitlesNow() {
   const layer = $('subs');
-  if (!S.cpl || !S.showSubs) { layer.textContent = ''; return; }
+  if (!S.cpl || !S.showSubs) { layer.textContent = ''; layer._key = ''; return; }
   const { i, reel, offset } = locate(S.frame);
   const r = S.reels[i];
-  if (!reel.subtitle || !r.subsData) { layer.textContent = ''; return; }
+  if (!reel.subtitle || !r.subsData) { layer.textContent = ''; layer._key = ''; return; }
   // tiempo dentro del archivo de subtítulos (respetando su EntryPoint)
   const er = reel.subtitle.editRate;
   const t = offset / S.fps + reel.subtitle.entry * er[1] / er[0];
-  const h = $('stage').getBoundingClientRect().height;
-  renderSubs(layer, activeAt(r.subsData, t), h, t);
+  const box = $('stage').getBoundingClientRect();
+  const pw = (S.pictureInfo && S.pictureInfo.width) || 0;
+  renderSubs(layer, activeAt(r.subsData, t), box.height, t, pw ? box.width / pw : 0);
 }
 new ResizeObserver(() => renderSubtitlesNow()).observe($('stage'));
 
 // ---------------------------------------------------------------- sonido
 
-async function listen() {
+/** Lee el sonido de n fotogramas desde el fotograma global g (cruzando bobinas). */
+async function readAudioRange(g0, total) {
+  const c = S.cpl;
+  let rate = 48000, labels = S.labels, g = g0, left = total;
+  const parts = [];
+  while (left > 0) {
+    const { i, reel, offset } = locate(g);
+    const n = Math.min(left, reel.duration - offset);
+    const r = S.reels[i];
+    let data = null;
+    if (r.snd) {
+      await r.snd.open();
+      rate = r.snd.rate;
+      const er = reel.sound.editRate;
+      // posición en el MXF de sonido: su EntryPoint + el mismo tiempo desde el principio de la bobina
+      const su = reel.sound.entry + Math.round(offset / S.fps * er[0] / er[1]);
+      const cnt = Math.round(n / S.fps * er[0] / er[1]);
+      data = await r.snd.read(su, cnt);
+    }
+    parts.push({ data, frames: n });       // sin sonido en esa bobina: silencio
+    g += n; left -= n;
+  }
+  const ch = S.channels || (parts.find(p => p.data) || { data: [] }).data.length;
+  if (!ch) return null;
+  const lens = parts.map(p => p.data ? p.data[0].length : Math.round(p.frames / S.fps * rate));
+  const tot = lens.reduce((a, b) => a + b, 0);
+  const chans = Array.from({ length: ch }, () => new Float32Array(tot));
+  let o = 0;
+  parts.forEach((p, k) => { if (p.data) p.data.forEach((d, c2) => chans[c2] && chans[c2].set(d.subarray(0, lens[k]), o)); o += lens[k]; });
+  if (labels.length !== ch) labels = channelLabels(c, ch);
+  return { chans, labels, rate };
+}
+
+function playLevels(w) {
+  // niveles de resolución reducida (1 = 1/2, 2 = 1/4, 3 = 1/8) según la opción elegida
+  const is4K = (w || 2048) > 2048;
+  if (S.playRes === 'auto') return { level: is4K ? 3 : 2, auto: true, min: is4K ? 2 : 1, max: is4K ? 4 : 3 };
+  const l = +S.playRes;
+  return { level: l, auto: false, min: l, max: l };
+}
+
+/** Reproducción continua desde la posición actual hasta el final o hasta Parar. */
+async function play() {
   if (S.play) { stopPlay(); return; }
   const c = S.cpl;
-  const g0 = S.frame;
-  const total = Math.min(c.duration - g0, Math.round(S.listenSecs * S.fps));
-  if (total <= 0) return;
-  $('bPlay').textContent = '… Leyendo';
-  // Junta el audio de las bobinas que toque
-  let chans = null, rate = 48000, labels = S.labels;
-  try {
-    let g = g0, left = total;
-    const parts = [];
-    while (left > 0) {
-      const { i, reel, offset } = locate(g);
-      const n = Math.min(left, reel.duration - offset);
-      const r = S.reels[i];
-      if (r.snd) {
-        await r.snd.open();
-        rate = r.snd.rate;
-        const er = reel.sound.editRate;
-        // posición en el MXF de sonido: su EntryPoint + el mismo tiempo desde el principio de la bobina
-        const su = reel.sound.entry + Math.round(offset / S.fps * er[0] / er[1]);
-        const cnt = Math.round(n / S.fps * er[0] / er[1]);
-        parts.push(await r.snd.read(su, cnt));
-      } else {
-        parts.push(null);    // bobina sin sonido: silencio
-      }
-      parts[parts.length - 1] = { data: parts[parts.length - 1], frames: n };
-      g += n; left -= n;
-    }
-    const ch = S.channels || (parts.find(p => p.data) || { data: [] }).data.length;
-    const lens = parts.map(p => p.data ? p.data[0].length : Math.round(p.frames / S.fps * rate));
-    const tot = lens.reduce((a, b) => a + b, 0);
-    chans = Array.from({ length: ch }, () => new Float32Array(tot));
-    let o = 0;
-    parts.forEach((p, k) => { if (p.data) p.data.forEach((d, c2) => chans[c2] && chans[c2].set(d.subarray(0, lens[k]), o)); o += lens[k]; });
-    if (labels.length !== ch) labels = channelLabels(c, ch);
-  } catch (e) {
-    $('bPlay').textContent = '▶ Escuchar';
-    $('audioNote').textContent = 'No se puede leer el sonido: ' + e.message;
-    return;
-  }
-  renderMeters(levels(chans), labels);
-  const mode = S.audioMode === 'stereo' ? 'stereo' : +S.audioMode;
-  const p = audio.play(chans, labels, rate, mode, () => stopPlay());
-  if (!p) { $('bPlay').textContent = '▶ Escuchar'; return; }
-  S.play = { startTime: p.startTime, g0, end: g0 + total - 1, last: -1 };
-  $('bPlay').textContent = '■ Parar';
-  const tick = () => {
-    if (!S.play) return;
-    const el = Math.max(0, audio.ctx.currentTime - S.play.startTime);
-    const g = Math.min(S.play.end, g0 + Math.floor(el * S.fps));
-    if (g !== S.frame) {
-      S.frame = g;
-      updatePosition(g);
+  if (S.frame >= c.duration - 1) S.frame = 0;
+  const { reel } = locate(S.frame);
+  if (reel.picture.keyId && !c.reels.some(r => r.sound && r.sound.file && !r.sound.keyId)) return;
+  clearTimeout(S.fullTimer);
+  S.token++;
+  pool.clearQueue();
+  const pi = S.pictureInfo || {};
+  const lv = playLevels(pi.width);
+  const hasSound = c.reels.some(r => r.sound && r.sound.file && !r.sound.keyId);
+  let lastMeters = 0;
+  const pb = new Playback({
+    pool, cpl: c, fps: S.fps, locate, getReader: getPicReader, color: S.color,
+    width: pi.width, height: pi.height,
+    level: lv.level, auto: lv.auto, minLevel: lv.min, maxLevel: lv.max,
+    hasSound, readAudio: readAudioRange, audioOut: audio,
+    audioMode: () => S.audioMode === 'stereo' ? 'stereo' : +S.audioMode,
+    draw: (res, g) => draw(res, g, true),
+    onTick: (g, st) => {
+      if (g !== S.frame) { S.frame = g; updatePosition(g); }
       renderSubtitlesNow();
-      // imagen a resolución reducida, sin encolar: solo si hay algún worker libre
-      if (pool.idle > 0 && g !== S.play.last) { S.play.last = g; show(g, { fast: true }).catch(() => {}); }
-    }
-    S.play.raf = requestAnimationFrame(tick);
-  };
-  S.play.raf = requestAnimationFrame(tick);
+      const pct = st.total ? Math.round(st.lost / st.total * 100) : 0;
+      $('hud').textContent = `${st.state === 'Precargando' ? 'Precargando… ' : '▶ '}resolución 1/${1 << st.level} · búfer ${st.buffered}/${st.ahead} · perdidos ${st.lost} (${pct} %)`;
+    },
+    onLevels: (chans, labels) => {
+      const now = performance.now();
+      if (now - lastMeters > 900) { lastMeters = now; renderMeters(levels(chans), labels); }
+    },
+    onEnd: () => { S.play = null; $('bPlay').textContent = '▶ Reproducir'; show(S.frame); }
+  });
+  S.play = pb;
+  $('bPlay').textContent = '■ Parar';
+  try { await pb.start(S.frame); } catch (e) {
+    console.error(e);
+    stopPlay();
+    $('audioNote').textContent = 'Error al reproducir: ' + e.message;
+  }
 }
 
 function stopPlay(showAfter = true) {
   if (!S.play) return;
-  cancelAnimationFrame(S.play.raf);
-  const g = S.frame;
+  const pb = S.play;
   S.play = null;
-  audio.stop();
-  $('bPlay').textContent = '▶ Escuchar';
-  if (S.cpl && showAfter) show(g);     // al parar, fotograma a resolución completa
+  pb.stop();
+  $('bPlay').textContent = '▶ Reproducir';
+  if (S.cpl && showAfter) show(S.frame);     // al parar, fotograma a resolución completa
 }
 
 function renderMeters(lv, labels) {
@@ -522,13 +543,13 @@ $('bSecBack').onclick = () => S.cpl && seek(S.frame - Math.round(S.fps));
 $('bSecFwd').onclick = () => S.cpl && seek(S.frame + Math.round(S.fps));
 $('bReelPrev').onclick = () => reelJump(-1);
 $('bReelNext').onclick = () => reelJump(1);
-$('bPlay').onclick = () => S.cpl && listen();
+$('bPlay').onclick = () => S.cpl && play();
 $('seek').oninput = e => seek(+e.target.value, { fast: false });
 $('optSubs').onchange = e => { S.showSubs = e.target.checked; renderSubtitlesNow(); };
 $('optQuality').onchange = e => { S.quality = e.target.value; S.cpl && show(S.frame); };
 $('optColor').onchange = e => { S.color = e.target.value; S.cpl && show(S.frame); };
 $('optAudio').onchange = e => { S.audioMode = e.target.value; };
-$('optSecs').onchange = e => { S.listenSecs = +e.target.value; };
+$('optPlayRes').onchange = e => { S.playRes = e.target.value; if (S.play) { stopPlay(false); play(); } };
 $('optVol').oninput = e => audio.setVolume(+e.target.value);
 $('bFull').onclick = toggleFullscreen;
 $('bSave').onclick = () => {
@@ -575,7 +596,7 @@ document.addEventListener('keydown', e => {
     case 'End': seek(S.cpl.duration - 1); break;
     case 'PageUp': reelJump(-1); break;
     case 'PageDown': reelJump(1); break;
-    case ' ': listen(); break;
+    case ' ': play(); break;
     case 's': case 'S': $('optSubs').checked = !$('optSubs').checked; S.showSubs = $('optSubs').checked; renderSubtitlesNow(); break;
     case 'f': case 'F': toggleFullscreen(); break;
     default: handled = false;

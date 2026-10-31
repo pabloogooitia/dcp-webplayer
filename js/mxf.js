@@ -406,6 +406,45 @@ export class MXFReader {
   }
 
   /**
+   * Lee varios fotogramas seguidos de una sola vez (para la reproducción continua).
+   * Devuelve [{ data, encrypted }]. Si no van contiguos en el archivo, los lee uno a uno.
+   */
+  async readRange(n, count) {
+    const one = async () => {
+      const out = [];
+      for (let k = 0; k < count; k++) {
+        try { out.push(await this.readUnit(n + k)); } catch (e) { out.push(null); }
+      }
+      return out;
+    };
+    if (!this.offsets || count <= 1) return one();
+    const last = n + count - 1;
+    if (n < 0 || last >= this.offsets.length) return one();
+    const first = this.locate(n), lastPos = this.locate(last);
+    if (first == null || lastPos == null || lastPos - first !== this.offsets[last] - this.offsets[n]) return one();
+    let endPos;
+    if (last + 1 < this.offsets.length) {
+      endPos = this.locate(last + 1);
+      if (endPos == null || endPos - first !== this.offsets[last + 1] - this.offsets[n]) return one();
+    } else {
+      const kl = await readKL(this.file, lastPos);
+      endPos = lastPos + kl.total;
+    }
+    if (endPos - first > 256 * 1024 * 1024) return one();
+    const b = await readBytes(this.file, first, endPos - first);
+    const out = [];
+    for (let k = 0; k < count; k++) {
+      const p = this.offsets[n + k] - this.offsets[n];
+      if (p + 17 > b.length) { out.push(null); continue; }
+      const [len, nb] = readBER(b, p + 16);
+      const encrypted = isCryptKey(b, p);
+      if (!isEssenceKey(b, p) && !encrypted) { out.push(null); continue; }
+      out.push({ data: b.subarray(p + 16 + nb, p + 16 + nb + len), encrypted });
+    }
+    return out;
+  }
+
+  /**
    * Lee varias edit units seguidas (para el sonido). Devuelve un array de Uint8Array.
    * En CBR van contiguas, así que se lee un solo trozo.
    */
@@ -436,13 +475,20 @@ export class MXFReader {
     const out = [];
     for (const p of this.partitions) {
       if (p.kind !== 'generic' || p.essenceStart == null) continue;
-      const kl = await readKL(this.file, p.essenceStart);
-      if (!kl || kl.len > 64 * 1024 * 1024) continue;
-      const b = await readBytes(this.file, p.essenceStart + kl.hdr, kl.len);
-      out.push({ bodySID: p.pack.bodySID, data: b });
+      // una partición puede llevar uno o varios recursos seguidos (fuentes, PNG)
+      let pos = p.essenceStart;
+      for (let k = 0; k < 4096 && pos < this.file.size; k++) {
+        const kl = await readKL(this.file, pos);
+        if (!kl || isPartitionKey(kl.buf, 0) || keyMatch(kl.buf, 0, RIP)) break;
+        if (!isFillKey(kl.buf, 0) && kl.len <= 64 * 1024 * 1024) {
+          out.push({ bodySID: p.pack.bodySID, data: await readBytes(this.file, pos + kl.hdr, kl.len) });
+        }
+        pos += kl.total;
+      }
     }
     return out;
   }
+
 }
 
 /** Si el valor es un triplete encriptado (SMPTE 429-6), devuelve la clave de la esencia original. */

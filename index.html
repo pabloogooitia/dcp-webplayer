@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DCP Web Player</title>
 <!--
-  Babel · DCP Web Player — v0.1
+  Babel · DCP Web Player — v0.2
+  v0.2: reproducción continua con precarga y 1/8; arreglo del parpadeo de los subtítulos PNG.
   Visor de comprobación de DCPs en el navegador: lee ASSETMAP, PKL y CPL (SMPTE e Interop),
   localiza los fotogramas JPEG 2000 dentro de los MXF sin cargarlos enteros, los decodifica
   con OpenJPEG (WebAssembly) en varios workers y convierte el color X'Y'Z' a sRGB.
@@ -144,7 +145,7 @@ footer{margin-top:26px;font-size:11px;color:var(--muted);text-align:center}
 <div class="wrap">
   <header>
     <div>
-      <h1>DCP Web Player <small>v0.1</small></h1>
+      <h1>DCP Web Player <small>v0.2</small></h1>
       <div class="sub">Visor de comprobación de DCPs · Cines Babel</div>
     </div>
     <button id="themeBtn" title="Cambiar entre modo claro y oscuro">Tema</button>
@@ -180,7 +181,7 @@ footer{margin-top:26px;font-size:11px;color:var(--muted);text-align:center}
         <button class="icon" id="bReelPrev" title="Bobina anterior (RePág)">⇤</button>
         <button class="icon" id="bSecBack" title="−1 segundo (Mayús+←)">−1 s</button>
         <button class="icon" id="bBack" title="−1 fotograma (←)">−1</button>
-        <button class="primary" id="bPlay" title="Escuchar unos segundos desde aquí (Espacio)">▶ Escuchar</button>
+        <button class="primary" id="bPlay" title="Reproducir / parar (Espacio)">▶ Reproducir</button>
         <button class="icon" id="bFwd" title="+1 fotograma (→)">+1</button>
         <button class="icon" id="bSecFwd" title="+1 segundo (Mayús+→)">+1 s</button>
         <button class="icon" id="bReelNext" title="Bobina siguiente (AvPág)">⇥</button>
@@ -210,9 +211,10 @@ footer{margin-top:26px;font-size:11px;color:var(--muted);text-align:center}
         <label>Sonido
           <select id="optAudio"><option value="stereo">Mezcla estéreo</option></select>
         </label>
-        <label>Escuchar
-          <select id="optSecs">
-            <option value="3">3 s</option><option value="5" selected>5 s</option><option value="10">10 s</option><option value="20">20 s</option>
+        <label title="Resolución mientras se reproduce. Automática: empieza en 1/4 (1/8 en 4K) y la ajusta según los fotogramas que se pierdan">Al reproducir
+          <select id="optPlayRes">
+            <option value="auto">Automática</option>
+            <option value="1">1/2</option><option value="2">1/4</option><option value="3">1/8</option>
           </select>
         </label>
         <label>Volumen <input type="range" id="optVol" min="0" max="1" step="0.05" value="0.8"></label>
@@ -239,11 +241,11 @@ footer{margin-top:26px;font-size:11px;color:var(--muted);text-align:center}
       <div><kbd>↑</kbd> <kbd>↓</kbd> ±10 segundos</div>
       <div><kbd>Inicio</kbd> <kbd>Fin</kbd> principio / final</div>
       <div><kbd>RePág</kbd> <kbd>AvPág</kbd> bobina anterior / siguiente</div>
-      <div><kbd>Espacio</kbd> escuchar / parar</div>
+      <div><kbd>Espacio</kbd> reproducir / parar</div>
       <div><kbd>S</kbd> subtítulos sí / no</div>
       <div><kbd>F</kbd> pantalla completa</div>
     </div>
-    <div class="note">Fase 1: es un visor de comprobación fotograma a fotograma. La imagen se decodifica con OpenJPEG (WebAssembly) dentro del navegador; mientras se escucha, la imagen sigue a la posición a resolución reducida y a los fotogramas por segundo que dé el ordenador. Los DCP encriptados no se pueden ver aquí: la KDM solo la puede abrir el servidor de la sala.</div>
+    <div class="note">La imagen se decodifica con OpenJPEG (WebAssembly) dentro del navegador, en varios procesos a la vez. Al reproducir se precarga lo que viene (hasta 4 s) a resolución reducida; en pausa, el fotograma se ve a resolución completa. Los navegadores no tienen decodificación JPEG 2000 por hardware, así que la fluidez depende del ordenador: si se pierden fotogramas, baja la resolución con «Al reproducir». Los DCP encriptados no se pueden ver aquí: la KDM solo la puede abrir el servidor de la sala.</div>
   </section>
 
   <footer>DCP Web Player · Cines Babel · Pablo Goitia Martinez · Decodificador JPEG 2000: OpenJPEG (BSD) vía @cornerstonejs/codec-openjpeg (MIT)</footer>
