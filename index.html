@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DCP Web Player</title>
 <!--
-  Babel · DCP Web Player — v0.3
+  Babel · DCP Web Player — v0.4
+  v0.4: botón para vaciar los DCPs cargados; peso del DCP en la ficha.
   v0.3: precarga de 10 s antes de arrancar y búfer de hasta 12 s.
   v0.2: reproducción continua con precarga y 1/8; arreglo del parpadeo de los subtítulos PNG.
   Visor de comprobación de DCPs en el navegador: lee ASSETMAP, PKL y CPL (SMPTE e Interop),
@@ -133,6 +134,7 @@ tr.cur td{background:var(--panel-2)}
 .keys{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px;font-size:12.5px}
 kbd{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel-2)}
 .note{font-size:12px;color:var(--muted);margin-top:8px}
+.head-btns{display:flex;gap:6px;flex-wrap:wrap}
 footer{margin-top:26px;font-size:11px;color:var(--muted);text-align:center}
 .hidden{display:none !important}
 @media (max-width:640px){
@@ -146,10 +148,13 @@ footer{margin-top:26px;font-size:11px;color:var(--muted);text-align:center}
 <div class="wrap">
   <header>
     <div>
-      <h1>DCP Web Player <small>v0.3</small></h1>
+      <h1>DCP Web Player <small>v0.4</small></h1>
       <div class="sub">Visor de comprobación de DCPs · Cines Babel</div>
     </div>
-    <button id="themeBtn" title="Cambiar entre modo claro y oscuro">Tema</button>
+    <div class="head-btns">
+      <button id="clearBtn" class="hidden" title="Quitar todos los DCPs cargados (como recargar la página, pero conservando las opciones)">Vaciar DCPs</button>
+      <button id="themeBtn" title="Cambiar entre modo claro y oscuro">Tema</button>
+    </div>
   </header>
 
   <div id="drop" tabindex="0" role="button">
@@ -246,10 +251,10 @@ footer{margin-top:26px;font-size:11px;color:var(--muted);text-align:center}
       <div><kbd>S</kbd> subtítulos sí / no</div>
       <div><kbd>F</kbd> pantalla completa</div>
     </div>
-    <div class="note">La imagen se decodifica con OpenJPEG (WebAssembly) dentro del navegador, en varios procesos a la vez. Al reproducir se precarga lo que viene (hasta 4 s) a resolución reducida; en pausa, el fotograma se ve a resolución completa. Los navegadores no tienen decodificación JPEG 2000 por hardware, así que la fluidez depende del ordenador: si se pierden fotogramas, baja la resolución con «Al reproducir». Los DCP encriptados no se pueden ver aquí: la KDM solo la puede abrir el servidor de la sala.</div>
+    <div class="note">La imagen se decodifica con OpenJPEG (WebAssembly) dentro del navegador, en varios procesos a la vez. Al reproducir se precargan 10 s antes de arrancar (y hasta 12 s por delante) a resolución reducida; en pausa, el fotograma se ve a resolución completa. Los navegadores no tienen decodificación JPEG 2000 por hardware, así que la fluidez depende del ordenador: si se pierden fotogramas, baja la resolución con «Al reproducir». Los DCP encriptados no se pueden ver aquí: la KDM solo la puede abrir el servidor de la sala.</div>
   </section>
 
-  <footer>DCP Web Player · Cines Babel · Pablo Goitia Martinez · Decodificador JPEG 2000: OpenJPEG (BSD) vía @cornerstonejs/codec-openjpeg (MIT)</footer>
+  <footer>DCP Web Player · Pablo Goitia Martinez · Decodificador JPEG 2000: OpenJPEG (BSD) vía @cornerstonejs/codec-openjpeg (MIT)</footer>
 </div>
 <script type="module" src="js/app.js"></script>
 </body>

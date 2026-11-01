@@ -65,7 +65,7 @@ export async function loadPackages(files) {
     const root = doc.documentElement;
     const smpte = /smpte-ra\.org/.test(root.namespaceURI || '');
     const dir = dirname(am.path);
-    const pkg = { path: dir || '(raíz)', assetmap: am.path, standard: smpte ? 'SMPTE' : 'Interop', pkls: [], cpls: [], issuer: txt(root, 'Issuer'), creator: txt(root, 'Creator') };
+    const pkg = { path: dir || '(raíz)', assetmap: am.path, amFile: am.file, standard: smpte ? 'SMPTE' : 'Interop', pkls: [], cpls: [], issuer: txt(root, 'Issuer'), creator: txt(root, 'Creator') };
     for (const a of kids(kid(root, 'AssetList'), 'Asset')) {
       const id = uuidOf(txt(a, 'Id'));
       const chunk = desc(a, 'Chunk');

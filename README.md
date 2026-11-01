@@ -9,10 +9,12 @@ Los archivos se procesan en el navegador y no se suben a ningún sitio.
 - Acepta la carpeta de un DCP (botón o arrastrando la carpeta), varias a la vez o un disco entero. Si se cargan juntas una VF y su OV, la VF usa los archivos de la OV.
 - Lee el ASSETMAP (SMPTE `ASSETMAP.xml` o Interop `ASSETMAP`), las PKL y las CPL. Si hay varias CPL, salen en una lista para elegir.
 - Los MXF nunca se cargan enteros: se leen a trozos con `File.slice()` (partition packs, RIP, metadatos e índice) y de cada fotograma solo sus bytes. Funciona igual con un tráiler que con un largo de cientos de GB.
+- **Vaciar DCPs** (arriba a la derecha) quita todos los DCPs cargados, como recargar la página pero sin perder las opciones. Útil al ir revisando discos uno detrás de otro.
 
 ### Ficha de la CPL
 - Veredicto bien visible: **Libre · no necesita KDM** o **Encriptado · necesita KDM: no se puede reproducir aquí** (cualquier pista con `<KeyId>`), qué pistas están encriptadas y cuántas claves.
 - Título, tipo, SMPTE o Interop, duración (timecode y fotogramas), bobinas, resolución (2K/4K, Flat/Scope), perfil JPEG 2000, fps, 2D/3D, sonido (5.1/7.1, canales, kHz, Atmos), subtítulos e idioma, emisor, fecha, versión.
+- Peso del DCP (la carpeta de esa OV o VF, como lo cuenta el Finder del Mac: 1 GB = 1000 MB). Si es una VF cargada junto a su OV, también el total contando los archivos de la OV que usa. El peso sale también en la lista de CPLs.
 - Tabla de bobinas con duración, entry point y el estado de cada archivo (ok, falta o encriptado). Avisa si faltan archivos (típico de una VF sin su OV).
 
 ### Imagen
@@ -96,6 +98,7 @@ Para probarlo en local hace falta servirlo por HTTP (los workers y el WASM no ca
 Desarrollado por **Pablo Goitia Martinez** — [pgoitiamartinez@gmail.com](mailto:pgoitiamartinez@gmail.com)
 
 ## Changelog
+- **v0.4** (01/11/2026): botón **Vaciar DCPs** para quitar todo lo cargado sin recargar la página. Peso del DCP (OV o VF) en la ficha y en la lista de CPLs; en una VF, también el total con los archivos de la OV. Quitado «Cines Babel» del pie de página.
 - **v0.3** (01/11/2026): antes de reproducir se precargan 10 s (antes ~1 s) y el búfer llega hasta 12 s por delante (antes 4 s, tope de memoria de 512 MB). La resolución automática baja también cuando ve que el búfer se va vaciando, sin esperar a perder fotogramas, y no vuelve a subir a un nivel que no ha aguantado (así no cambia de resolución cada pocos segundos). El indicador muestra el búfer en segundos.
 - **v0.2** (01/11/2026): reproducción continua (ya no se para a los pocos segundos) con precarga de fotogramas por delante, lectura del disco por bloques, hasta 6 workers y sonido sincronizado por trozos; resolución al reproducir automática o fija en 1/2, 1/4 y 1/8. Arreglado el parpadeo de los subtítulos PNG (se veían alternando gigantes y descentrados con los buenos): ahora se pintan ya escalados a la resolución del DCP y no se rehacen en cada fotograma. Los recursos de los subtítulos SMPTE se leen aunque vayan varios en la misma partición.
 - **v0.1** (31/10/2026): primera versión (fase 1). Carga de DCP SMPTE e Interop, ficha de la CPL con detección de encriptado, lector MXF con índice, decodificación JPEG 2000 en WebAssembly con conversión XYZ → sRGB, línea de tiempo por toda la CPL con atajos, subtítulos SMPTE e Interop, y escucha del sonido con mezcla estéreo o por canales.

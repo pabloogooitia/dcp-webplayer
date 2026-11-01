@@ -55,6 +55,31 @@ document.addEventListener('drop', async e => {
   try { handleFiles(await filesFromDrop(e.dataTransfer)); } catch (err) { showErrors(['No se puede leer lo arrastrado: ' + err.message]); }
 });
 
+// ---------------------------------------------------------------- vaciar
+
+/** Quita todos los DCPs cargados y deja la página como recién abierta (las opciones se mantienen). */
+function clearAll() {
+  stopPlay(false);
+  audio.stop();
+  clearTimeout(S.fullTimer);
+  S.token++;                      // invalida las decodificaciones y lecturas en marcha
+  pool.clearQueue();
+  Object.assign(S, {
+    files: [], byPath: new Map(), data: null, cpl: null, reels: [], frame: 0,
+    pictureInfo: null, channels: 0, labels: [], soundRate: 0, soundBits: 0, soundError: null
+  });
+  S.cache.clear(); S.cacheBytes = 0;
+  for (const id of ['cplPanel', 'ficha', 'player', 'reelsPanel', 'clearBtn']) $(id).classList.add('hidden');
+  $('ficha').innerHTML = ''; $('cplList').innerHTML = ''; $('reelsTable').innerHTML = '';
+  $('subs').textContent = ''; $('subs')._key = '';
+  $('meters').innerHTML = ''; $('audioNote').textContent = ''; $('hud').textContent = '';
+  setMsg(''); clearCanvas();
+  drop.classList.remove('compact');
+  drop.querySelector('strong').textContent = 'Arrastra aquí la carpeta del DCP';
+  setStatus(''); showErrors([]);
+}
+$('clearBtn').onclick = clearAll;
+
 function setStatus(t) { $('status').textContent = t || ''; }
 function showErrors(list) { $('errors').innerHTML = list.map(x => `<div>${esc(x)}</div>`).join(''); }
 
@@ -74,6 +99,7 @@ async function handleFiles(files) {
   }
   drop.classList.add('compact');
   drop.querySelector('strong').textContent = 'Cargar otro DCP';
+  $('clearBtn').classList.remove('hidden');
   setStatus(`${data.packages.length} DCP · ${data.cpls.length} CPL`);
   showErrors(data.warnings);
   renderCplList();
@@ -87,7 +113,7 @@ function renderCplList() {
   $('cplList').innerHTML = cpls.map((c, i) => `
     <div class="cpl-item${c === S.cpl ? ' on' : ''}" data-i="${i}">
       <div class="t">${esc(c.title || c.annotation || c.id)}</div>
-      <span class="d">${esc(kindName(c.kind))} · ${fmtDuration(c.duration, c.editRate[0] / c.editRate[1])} · ${c.reels.length} bob.</span>
+      <span class="d">${esc(kindName(c.kind))} · ${fmtDuration(c.duration, c.editRate[0] / c.editRate[1])} · ${c.reels.length} bob.${(w => w.bytes ? ' · ' + fmtBytes(w.bytes) : '')(packageWeight(c))}</span>
       ${c.encrypted ? '<span class="badge b-bad">Encriptado</span>' : '<span class="badge b-ok">Libre</span>'}
     </div>`).join('');
   $('cplList').querySelectorAll('.cpl-item').forEach(el => el.onclick = () => selectCPL(cpls[+el.dataset.i]));
@@ -177,6 +203,35 @@ function setRatio(w, h) {
 
 // ---------------------------------------------------------------- ficha
 
+/** Bytes → «45,3 GB» (unidades decimales, como el Finder del Mac). */
+function fmtBytes(n) {
+  const u = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+  return (i ? n.toLocaleString('es-ES', { maximumFractionDigits: n < 10 ? 2 : 1 }) : n) + ' ' + u[i];
+}
+
+/**
+ * Peso del paquete de la CPL (la OV o la VF): los archivos que lista su ASSETMAP
+ * y que se han cargado, más el propio ASSETMAP. Si es una VF que usa archivos de
+ * otro paquete (su OV), también el total de lo que necesita la CPL.
+ */
+function packageWeight(c) {
+  const pkg = c.pkg, own = new Set(), used = new Set();
+  if (S.data) for (const a of S.data.assets.values()) if (a.pkg === pkg && a.file) own.add(a.file);
+  if (pkg.amFile) own.add(pkg.amFile);
+  let borrowed = false;
+  for (const r of c.reels) for (const a of [r.picture, r.sound, r.subtitle, r.caption, ...(r.aux || [])]) {
+    if (!a || !a.file) continue;
+    used.add(a.file);
+    if (!own.has(a.file)) borrowed = true;
+  }
+  const sum = set => [...set].reduce((t, f) => t + (f.size || 0), 0);
+  const all = new Set([...own, ...used]);
+  return { bytes: sum(own), files: own.size, borrowed, total: sum(all) };
+}
+
+
 function renderFicha() {
   const c = S.cpl, pi = S.pictureInfo || {};
   const fps = S.fps;
@@ -205,10 +260,14 @@ function renderFicha() {
     fmtDuration(c.duration, fps)
   ];
   if (caps.length) chips.push('Subtítulos cerrados (CCAP)');
+  const wgt = packageWeight(c);
+  if (wgt.bytes) chips.push(fmtBytes(wgt.bytes));
   const verdict = c.encrypted
     ? `<span class="badge b-bad verdict">Encriptado · necesita KDM: no se puede reproducir aquí</span>`
     : `<span class="badge b-ok verdict">Libre · no necesita KDM</span>`;
   const kv = [
+    ['Peso', wgt.bytes ? `${fmtBytes(wgt.bytes)} · ${wgt.files} ${wgt.files === 1 ? 'archivo' : 'archivos'} en la carpeta` +
+      (wgt.borrowed ? ` · ${fmtBytes(wgt.total)} contando los archivos de la OV que usa` : '') : ''],
     ['Duración', `${fmtTC(c.duration, fps)} · ${c.duration} fotogramas a ${S.editRate.join('/')} · ${fmtDuration(c.duration, fps)}`],
     ['Imagen', [res && fmt.name ? `${res} ${fmt.name}` : '', w ? `${w}×${h}` : '', pi.profile, pi.bits ? `${pi.bits} bits` : '', pi.levels != null ? `${pi.levels} niveles de resolución` : '', stereo ? '3D (estereoscópico)' : '2D'].filter(Boolean).join(' · ') + (pi.error ? ' · ' + pi.error : '')],
     ['Sonido', soundText(c, S.channels) + (S.soundRate ? ` · ${S.soundRate / 1000} kHz` : '') + (S.soundBits ? ` · ${S.soundBits} bits` : '') + (c.meta.soundConfig ? ` · ${c.meta.soundConfig}` : '')],
