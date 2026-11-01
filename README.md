@@ -1,4 +1,4 @@
-# DCP Web Player — Cines Babel
+# DCP Web Player
 
 Reproductor de DCP (Digital Cinema Package) que funciona en el navegador, al estilo de DCP-o-matic Player. Se elige o se arrastra la carpeta de un DCP y se ve su ficha, la imagen fotograma a fotograma, los subtítulos encima y se puede escuchar el sonido. Está alojado en GitHub Pages y no necesita instalar nada ni paso de compilación: los archivos se sirven tal cual.
 
@@ -98,7 +98,8 @@ Para probarlo en local hace falta servirlo por HTTP (los workers y el WASM no ca
 Desarrollado por **Pablo Goitia Martinez** — [pgoitiamartinez@gmail.com](mailto:pgoitiamartinez@gmail.com)
 
 ## Changelog
-- **v0.4** (01/11/2026): botón **Vaciar DCPs** para quitar todo lo cargado sin recargar la página. Peso del DCP (OV o VF) en la ficha y en la lista de CPLs; en una VF, también el total con los archivos de la OV. Quitado «Cines Babel» del pie de página.
+- **v0.5** (01/11/2026): es un proyecto personal: fuera las referencias a un cine concreto en el título, el subtítulo y los DCPs de prueba.
+- **v0.4** (01/11/2026): botón **Vaciar DCPs** para quitar todo lo cargado sin recargar la página. Peso del DCP (OV o VF) en la ficha y en la lista de CPLs; en una VF, también el total con los archivos de la OV. Pie de página simplificado.
 - **v0.3** (01/11/2026): antes de reproducir se precargan 10 s (antes ~1 s) y el búfer llega hasta 12 s por delante (antes 4 s, tope de memoria de 512 MB). La resolución automática baja también cuando ve que el búfer se va vaciando, sin esperar a perder fotogramas, y no vuelve a subir a un nivel que no ha aguantado (así no cambia de resolución cada pocos segundos). El indicador muestra el búfer en segundos.
 - **v0.2** (01/11/2026): reproducción continua (ya no se para a los pocos segundos) con precarga de fotogramas por delante, lectura del disco por bloques, hasta 6 workers y sonido sincronizado por trozos; resolución al reproducir automática o fija en 1/2, 1/4 y 1/8. Arreglado el parpadeo de los subtítulos PNG (se veían alternando gigantes y descentrados con los buenos): ahora se pintan ya escalados a la resolución del DCP y no se rehacen en cada fotograma. Los recursos de los subtítulos SMPTE se leen aunque vayan varios en la misma partición.
 - **v0.1** (31/10/2026): primera versión (fase 1). Carga de DCP SMPTE e Interop, ficha de la CPL con detección de encriptado, lector MXF con índice, decodificación JPEG 2000 en WebAssembly con conversión XYZ → sRGB, línea de tiempo por toda la CPL con atajos, subtítulos SMPTE e Interop, y escucha del sonido con mezcla estéreo o por canales.

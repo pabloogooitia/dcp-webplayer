@@ -425,7 +425,7 @@ class DCP:
             ns = 'http://www.digicine.com/PROTO-ASDCP-PKL-20040311#'
         lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<PackingList xmlns="%s">' % ns,
                  '  <Id>urn:uuid:%s</Id>' % pkl_id, '  <AnnotationText>%s</AnnotationText>' % title,
-                 '  <IssueDate>%s</IssueDate>' % now(), '  <Issuer>Cines Babel (prueba)</Issuer>',
+                 '  <IssueDate>%s</IssueDate>' % now(), '  <Issuer>DCP Web Player (prueba)</Issuer>',
                  '  <Creator>make_test_dcp.py</Creator>', '  <AssetList>']
         for aid, fn, kind in self.assets:
             p = os.path.join(self.root, fn)
@@ -457,7 +457,7 @@ class DCP:
         lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<AssetMap xmlns="%s">' % ns,
                  '  <Id>urn:uuid:%s</Id>' % uuid.uuid4(), '  <Creator>make_test_dcp.py</Creator>',
                  '  <VolumeCount>1</VolumeCount>', '  <IssueDate>%s</IssueDate>' % now(),
-                 '  <Issuer>Cines Babel (prueba)</Issuer>', '  <AssetList>']
+                 '  <Issuer>DCP Web Player (prueba)</Issuer>', '  <AssetList>']
         for aid, fn, kind in [(pkl_id, pkl_fn, 'PKL')] + self.assets:
             lines += ['    <Asset>', '      <Id>urn:uuid:%s</Id>' % aid]
             if kind == 'PKL':
@@ -584,7 +584,7 @@ def smpte_cpl(cid, cfg, reels, fps):
          '  <Id>urn:uuid:%s</Id>' % cid,
          '  <AnnotationText>%s</AnnotationText>' % cfg['title'],
          '  <IssueDate>%s</IssueDate>' % now(),
-         '  <Issuer>Cines Babel (prueba)</Issuer>',
+         '  <Issuer>DCP Web Player (prueba)</Issuer>',
          '  <Creator>make_test_dcp.py</Creator>',
          '  <ContentTitleText>%s</ContentTitleText>' % cfg['title'],
          '  <ContentKind scope="http://www.smpte-ra.org/schemas/429-7/2006/CPL#standard-content">%s</ContentKind>' % cfg['kind'],
@@ -630,7 +630,7 @@ def interop_cpl(cid, cfg, reels, fps):
          '  <Id>urn:uuid:%s</Id>' % cid,
          '  <AnnotationText>%s</AnnotationText>' % cfg['title'],
          '  <IssueDate>%s</IssueDate>' % now(),
-         '  <Issuer>Cines Babel (prueba)</Issuer>',
+         '  <Issuer>DCP Web Player (prueba)</Issuer>',
          '  <Creator>make_test_dcp.py</Creator>',
          '  <ContentTitleText>%s</ContentTitleText>' % cfg['title'],
          '  <ContentKind>%s</ContentKind>' % cfg['kind'],
@@ -657,16 +657,16 @@ def interop_cpl(cid, cfg, reels, fps):
 
 
 CONFIGS = [
-    dict(name='PRUEBA-SMPTE-FLAT', title='PruebaBabel_TST_F_ES-XX_51_2K_BABEL_20261031_SMPTE_OV',
+    dict(name='PRUEBA-SMPTE-FLAT', title='Prueba_TST_F_ES-XX_51_2K_DWP_20261031_SMPTE_OV',
          label='SMPTE · 2K FLAT', smpte=True, w=1998, h=1080, ratio=(1998, 1080), cinema='2K',
          reels=[168, 96], channels=16, subs='smpte', kind='test'),
-    dict(name='PRUEBA-INTEROP-SCOPE', title='PruebaBabel_TST_S_ES-XX_51_2K_BABEL_20261031_IOP_OV',
+    dict(name='PRUEBA-INTEROP-SCOPE', title='Prueba_TST_S_ES-XX_51_2K_DWP_20261031_IOP_OV',
          label='INTEROP · 2K SCOPE', smpte=False, w=2048, h=858, ratio=(2048, 858), sar='2.39', cinema='2K',
          reels=[72], channels=6, subs='interop', kind='trailer'),
-    dict(name='PRUEBA-SMPTE-4K', title='PruebaBabel_TST_S_ES-XX_51_4K_BABEL_20261031_SMPTE_OV',
+    dict(name='PRUEBA-SMPTE-4K', title='Prueba_TST_S_ES-XX_51_4K_DWP_20261031_SMPTE_OV',
          label='SMPTE · 4K SCOPE', smpte=True, w=4096, h=1716, ratio=(4096, 1716), cinema='4K',
          reels=[28], channels=6, kind='test', entry=4),
-    dict(name='PRUEBA-ENCRIPTADO', title='PruebaBabel_FTR_F_ES-XX_51_2K_BABEL_20261031_SMPTE_OV',
+    dict(name='PRUEBA-ENCRIPTADO', title='Prueba_FTR_F_ES-XX_51_2K_DWP_20261031_SMPTE_OV',
          label='ENCRIPTADO', smpte=True, w=1998, h=1080, ratio=(1998, 1080), cinema='2K',
          reels=[24], channels=6, encrypted=True, kind='feature'),
 ]
